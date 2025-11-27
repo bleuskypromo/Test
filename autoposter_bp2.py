@@ -5,8 +5,8 @@ import time
 from datetime import datetime, timedelta, timezone
 
 FEED_AT_URI = "at://did:plc:jaka644beit3x4vmmg6yysw7/app.bsky.feed.generator/aaamoypyhyi3y"
-HOURS_BACK = 4
-MAX_PER_RUN = 50
+HOURS_BACK = 3
+MAX_PER_RUN = 100
 MAX_PER_USER = 3
 DELAY_SECONDS = 2
 REPOST_LOG_FILE = "reposted_bp2.txt"  # apart bestand voor deze versie
