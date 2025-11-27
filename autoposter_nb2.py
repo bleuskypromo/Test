@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 FEED_URI = "at://did:plc:jaka644beit3x4vmmg6yysw7/app.bsky.feed.generator/aaagavuywvbsu"
 MAX_PER_RUN = 100         # max aantal reposts per run
 MAX_PER_USER = 3          # max per gebruiker per run
-HOURS_BACK = 5            # kijk 5 uur terug (test); later kun je dit naar 1.5 zetten
+HOURS_BACK = 2            # kijk 2 uur terug (test); later kun je dit naar 1.5 zetten
 REPOST_LOG_FILE = "reposted_nb2.txt"  # eigen log voor nsfw-acc
 
 def log(msg: str):
