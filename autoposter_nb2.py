@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 
 # === CONFIG ===
 FEED_URI = "at://did:plc:jaka644beit3x4vmmg6yysw7/app.bsky.feed.generator/aaagavuywvbsu"
-MAX_PER_RUN = 50
+MAX_PER_RUN = 100
 MAX_PER_USER = 3
-HOURS_BACK = 4
+HOURS_BACK = 2
 DELAY_SECONDS = 2  # vertraging tussen reposts
 
 REPOST_LOG = "reposted_nb.txt"
