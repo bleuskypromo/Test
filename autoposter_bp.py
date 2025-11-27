@@ -6,9 +6,9 @@ from datetime import datetime, timedelta, timezone
 
 # === SETTINGS ===
 FEED_AT_URI = "at://did:plc:jaka644beit3x4vmmg6yysw7/app.bsky.feed.generator/aaae6jfc5w2oi"
-HOURS_BACK = 4
-MAX_PER_RUN = 50
-MAX_PER_USER = 3
+HOURS_BACK = 2
+MAX_PER_RUN = 100
+MAX_PER_USER = 5
 DELAY_SECONDS = 2
 REPOST_LOG_FILE = "reposted_bp.txt"   # uniek per account houden
 
