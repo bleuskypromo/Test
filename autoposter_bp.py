@@ -30,6 +30,40 @@ def parse_created_dt(record, post):
                 continue
     return None
 
+def has_media(record) -> bool:
+    """Checkt of de post foto's of video's bevat."""
+    embed = getattr(record, "embed", None)
+    if not embed:
+        return False
+
+    # Afbeeldingen
+    if hasattr(embed, "images") and embed.images:
+        return True
+
+    # Video / andere media
+    if hasattr(embed, "media") and embed.media:
+        return True
+    if hasattr(embed, "video") and embed.video:
+        return True
+
+    return False
+
+def is_quote_post(record) -> bool:
+    """Checkt of de post een quote-post is (record-embed)."""
+    embed = getattr(record, "embed", None)
+    if not embed:
+        return False
+
+    # Quote zonder media
+    if hasattr(embed, "record") and embed.record:
+        return True
+
+    # Quote mét media
+    if hasattr(embed, "recordWithMedia") and embed.recordWithMedia:
+        return True
+
+    return False
+
 def main():
     username = os.environ.get("BSKY_USERNAME_BP")
     password = os.environ.get("BSKY_PASSWORD_BP")
@@ -66,10 +100,20 @@ def main():
         uri = post.uri
         cid = post.cid
 
-        # sla reposts/replies over
+        # sla reposts/boosts over
         if getattr(item, "reason", None):
             continue
+
+        # sla replies over
         if getattr(record, "reply", None):
+            continue
+
+        # sla quote-posts over
+        if is_quote_post(record):
+            continue
+
+        # sla tekst-only / link-only posts over (alleen met media)
+        if not has_media(record):
             continue
 
         # al eens gedaan?
