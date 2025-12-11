@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 FEED_URI = "at://did:plc:jaka644beit3x4vmmg6yysw7/app.bsky.feed.generator/aaagavuywvbsu"
 MAX_PER_RUN = 100         # max aantal reposts per run
 MAX_PER_USER = 5          # max per gebruiker per run
-HOURS_BACK = 2            # kijk 2 uur terug (test); later kun je dit naar 1.5 zetten
+HOURS_BACK = 2            # kijk 2 uur terug
 REPOST_LOG_FILE = "reposted_nb2.txt"  # eigen log voor nsfw-acc
 
 def log(msg: str):
@@ -39,6 +39,40 @@ def save_repost_log(path: str, uris: set):
     with open(path, "w", encoding="utf-8") as f:
         for uri in uris:
             f.write(uri + "\n")
+
+def has_media(record) -> bool:
+    """Checkt of de post foto's of video's bevat."""
+    embed = getattr(record, "embed", None)
+    if not embed:
+        return False
+
+    # Afbeeldingen
+    if hasattr(embed, "images") and embed.images:
+        return True
+
+    # Video / andere media
+    if hasattr(embed, "media") and embed.media:
+        return True
+    if hasattr(embed, "video") and embed.video:
+        return True
+
+    return False
+
+def is_quote_post(record) -> bool:
+    """Checkt of de post een quote-post is (record-embed)."""
+    embed = getattr(record, "embed", None)
+    if not embed:
+        return False
+
+    # Quote zonder media
+    if hasattr(embed, "record") and embed.record:
+        return True
+
+    # Quote mét media
+    if hasattr(embed, "recordWithMedia") and embed.recordWithMedia:
+        return True
+
+    return False
 
 def main():
     username = os.getenv("BSKY_USERNAME_NB")
@@ -75,10 +109,20 @@ def main():
         uri = post.uri
         cid = post.cid
 
-        # Reposts en replies overslaan
+        # Reposts (boosts) overslaan
         if hasattr(item, "reason") and item.reason is not None:
             continue
+
+        # Replies overslaan
         if getattr(record, "reply", None):
+            continue
+
+        # Quote-posts overslaan
+        if is_quote_post(record):
+            continue
+
+        # Tekst-only / link-only posts overslaan (alleen posts met media)
+        if not has_media(record):
             continue
 
         # Al eens gedaan?
