@@ -28,6 +28,40 @@ def parse_created_dt(record, post):
                 pass
     return None
 
+def has_media(record) -> bool:
+    """Checkt of de post foto's of video's bevat."""
+    embed = getattr(record, "embed", None)
+    if not embed:
+        return False
+
+    # Afbeeldingen
+    if hasattr(embed, "images") and embed.images:
+        return True
+
+    # Video / andere media
+    if hasattr(embed, "media") and embed.media:
+        return True
+    if hasattr(embed, "video") and embed.video:
+        return True
+
+    return False
+
+def is_quote_post(record) -> bool:
+    """Checkt of de post een quote-post is (record-embed)."""
+    embed = getattr(record, "embed", None)
+    if not embed:
+        return False
+
+    # Quote zonder media
+    if hasattr(embed, "record") and embed.record:
+        return True
+
+    # Quote mét media
+    if hasattr(embed, "recordWithMedia") and embed.recordWithMedia:
+        return True
+
+    return False
+
 def main():
     username = os.getenv("BSKY_USERNAME_BP")
     password = os.getenv("BSKY_PASSWORD_BP")
@@ -61,10 +95,22 @@ def main():
         uri = post.uri
         record = post.record
 
+        # Reposts/boosts overslaan
         if getattr(item, "reason", None):
             continue
+
+        # Replies overslaan
         if getattr(record, "reply", None):
             continue
+
+        # Quote-posts overslaan
+        if is_quote_post(record):
+            continue
+
+        # Tekst-only / link-only posts overslaan (alleen posts met media)
+        if not has_media(record):
+            continue
+
         if uri in done:
             continue
 
@@ -93,7 +139,11 @@ def main():
         try:
             client.app.bsky.feed.repost.create(
                 repo=client.me.did,
-                record={"$type": "app.bsky.feed.repost", "subject": {"uri": p["uri"], "cid": p["cid"]}, "createdAt": now_utc_iso()},
+                record={
+                    "$type": "app.bsky.feed.repost",
+                    "subject": {"uri": p["uri"], "cid": p["cid"]},
+                    "createdAt": now_utc_iso(),
+                },
             )
             reposted += 1
             done.add(p["uri"])
@@ -101,7 +151,11 @@ def main():
             try:
                 client.app.bsky.feed.like.create(
                     repo=client.me.did,
-                    record={"$type": "app.bsky.feed.like", "subject": {"uri": p["uri"], "cid": p["cid"]}, "createdAt": now_utc_iso()},
+                    record={
+                        "$type": "app.bsky.feed.like",
+                        "subject": {"uri": p["uri"], "cid": p["cid"]},
+                        "createdAt": now_utc_iso(),
+                    },
                 )
                 liked += 1
             except:
