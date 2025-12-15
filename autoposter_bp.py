@@ -9,7 +9,7 @@ FEED_AT_URI = "at://did:plc:jaka644beit3x4vmmg6yysw7/app.bsky.feed.generator/aaa
 HOURS_BACK = 2
 MAX_PER_RUN = 100
 MAX_PER_USER = 5
-DELAY_SECONDS = 2
+DELAY_SECONDS = 1
 REPOST_LOG_FILE = "reposted_bp.txt"   # uniek per account houden
 
 def now_utc_iso():
