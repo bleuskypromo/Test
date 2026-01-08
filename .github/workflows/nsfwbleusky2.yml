@@ -1,8 +1,4 @@
-name: Bluesky Auto Reposter (nsfwbleusky)
 
-on:
-  schedule:
-    - cron: "13 */1 * * *"  # iedere 1 uur
   workflow_dispatch:
 
 jobs:
