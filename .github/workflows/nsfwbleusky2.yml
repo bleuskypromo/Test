@@ -1,16 +1,13 @@
-name: Unrepost all (NB)
+name: Unrepost cleanup (NB) scheduled
 
 on:
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Dry run (true/false)"
-        required: true
-        default: "true"
-      max_actions:
-        description: "Max unreposts per run (safety cap)"
-        required: true
-        default: "500"
+  schedule:
+    - cron: "*/15 * * * *"   # elke 15 minuten
+  workflow_dispatch:          # ook handmatig kunnen starten
+
+concurrency:
+  group: unrepost-nb
+  cancel-in-progress: true   # nooit twee runs tegelijk
 
 jobs:
   cleanup:
@@ -28,12 +25,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install atproto
 
-      - name: Unrepost everything (NB account)
+      - name: Unrepost batch
         env:
           BSKY_USERNAME_NB: ${{ secrets.BSKY_USERNAME_NB }}
           BSKY_PASSWORD_NB: ${{ secrets.BSKY_PASSWORD_NB }}
-          DRY_RUN: ${{ inputs.dry_run }}
-          MAX_ACTIONS: ${{ inputs.max_actions }}
-          SLEEP_SECONDS: "0.15"
+          MAX_ACTIONS: "2000"
+          SLEEP_SECONDS: "0.3"
         run: |
-          python scripts/unrepost_all_nb.py
+          python scripts/unrepost_batch_nb.py
