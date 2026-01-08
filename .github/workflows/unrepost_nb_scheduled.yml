@@ -2,7 +2,7 @@ name: Unrepost cleanup (NB) scheduled
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # elke 15 minuten
+  - cron: "0 * * * *"
   workflow_dispatch:          # ook handmatig kunnen starten
 
 concurrency:
