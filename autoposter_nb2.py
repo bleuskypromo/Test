@@ -1,206 +1,133 @@
 from atproto import Client
 import os
 import time
-from datetime import datetime, timedelta, timezone
 
-# === CONFIG ===
-FEED_URI = "at://did:plc:jaka644beit3x4vmmg6yysw7/app.bsky.feed.generator/aaagavuywvbsu"
-MAX_PER_RUN = 100         # max aantal reposts per run
-MAX_PER_USER = 5          # max per gebruiker per run
-HOURS_BACK = 2            # kijk 2 uur terug
-REPOST_LOG_FILE = "reposted_nb2.txt"  # eigen log voor nsfw-acc
+# === SAFETY CONFIG ===
+DEFAULT_LIMIT = 100          # items per page
+DEFAULT_MAX_ACTIONS = 500    # max unreposts per run (safety cap)
+DEFAULT_SLEEP_SECONDS = 0.15 # throttle
 
-def log(msg: str):
-    """Eenvoudige console-log met tijd, zonder accountnamen/URI's."""
-    now = datetime.now(timezone.utc).strftime("%H:%M:%S")
-    print(f"[{now}] {msg}")
 
-def parse_time(record, post):
-    """Zoek bruikbare timestamp in record of post."""
-    for attr in ["createdAt", "indexedAt", "created_at", "timestamp"]:
-        val = getattr(record, attr, None) or getattr(post, attr, None)
-        if val:
-            try:
-                return datetime.fromisoformat(val.replace("Z", "+00:00"))
-            except Exception:
-                continue
-    return None
-
-def load_repost_log(path: str):
-    """Lees eerder gereposte URI's in uit txt-bestand."""
-    if not os.path.exists(path):
-        return set()
-    with open(path, "r", encoding="utf-8") as f:
-        lines = [line.strip() for line in f.readlines() if line.strip()]
-    return set(lines)
-
-def save_repost_log(path: str, uris: set):
-    """Schrijf bijgewerkte lijst van gereposte URI's naar txt-bestand."""
-    with open(path, "w", encoding="utf-8") as f:
-        for uri in uris:
-            f.write(uri + "\n")
-
-def has_media(record) -> bool:
-    """Checkt of de post foto's of video's bevat."""
-    embed = getattr(record, "embed", None)
-    if not embed:
+def is_repost_item(feed_item: dict) -> bool:
+    """
+    Author feed items that are reposts have a 'reason' with $type ending in 'reasonRepost'.
+    """
+    reason = feed_item.get("reason")
+    if not reason:
         return False
+    rtype = reason.get("$type", "")
+    return rtype.endswith("reasonRepost")
 
-    # Afbeeldingen
-    if hasattr(embed, "images") and embed.images:
-        return True
 
-    # Video / andere media
-    if hasattr(embed, "media") and embed.media:
-        return True
-    if hasattr(embed, "video") and embed.video:
-        return True
+def parse_at_uri(uri: str):
+    # at://did:plc:xxxx/app.bsky.feed.repost/3lxyz...
+    if not uri.startswith("at://"):
+        raise ValueError(f"Not an at:// uri: {uri}")
+    rest = uri[len("at://"):]
+    parts = rest.split("/")
+    if len(parts) < 3:
+        raise ValueError(f"Unexpected at:// uri format: {uri}")
+    repo = parts[0]
+    collection = parts[1]
+    rkey = parts[2]
+    return repo, collection, rkey
 
-    return False
-
-def is_quote_post(record) -> bool:
-    """Checkt of de post een quote-post is (record-embed)."""
-    embed = getattr(record, "embed", None)
-    if not embed:
-        return False
-
-    # Quote zonder media
-    if hasattr(embed, "record") and embed.record:
-        return True
-
-    # Quote mét media
-    if hasattr(embed, "recordWithMedia") and embed.recordWithMedia:
-        return True
-
-    return False
 
 def main():
     username = os.getenv("BSKY_USERNAME_NB")
     password = os.getenv("BSKY_PASSWORD_NB")
 
     if not username or not password:
-        log("❌ Geen inloggegevens gevonden in env (BSKY_USERNAME_NB / BSKY_PASSWORD_NB).")
+        print("❌ Geen inloggegevens gevonden in env (BSKY_USERNAME_NB / BSKY_PASSWORD_NB).")
         return
+
+    dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+    max_actions = int(os.getenv("MAX_ACTIONS", str(DEFAULT_MAX_ACTIONS)))
+    sleep_s = float(os.getenv("SLEEP_SECONDS", str(DEFAULT_SLEEP_SECONDS)))
 
     client = Client()
     client.login(username, password)
-    log("✅ Ingelogd.")
 
-    # Feed ophalen
-    log("📥 Feed ophalen...")
-    try:
-        feed = client.app.bsky.feed.get_feed({"feed": FEED_URI, "limit": 100})
-        items = feed.feed
-        log(f"📊 {len(items)} posts gevonden in feed.")
-    except Exception as e:
-        log(f"⚠️ Fout bij ophalen feed: {e}")
-        return
+    # In atproto python client: client.me.did is your DID
+    my_did = client.me.did
 
-    # Repost-log laden
-    done = load_repost_log(REPOST_LOG_FILE)
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=HOURS_BACK)
+    print(f"✅ Ingelogd als {username}")
+    print(f"ℹ️ DID: {my_did}")
+    print(f"ℹ️ dry_run={dry_run} max_actions={max_actions} sleep={sleep_s}s")
 
-    candidates = []
+    cursor = None
+    scanned = 0
+    unreposted = 0
+    skipped_no_uri = 0
 
-    # Alle items uit de feed inspecteren
-    for item in items:
-        post = item.post
-        record = post.record
-        uri = post.uri
-        cid = post.cid
+    while True:
+        params = {"actor": my_did, "limit": DEFAULT_LIMIT}
+        if cursor:
+            params["cursor"] = cursor
 
-        # Reposts (boosts) overslaan
-        if hasattr(item, "reason") and item.reason is not None:
-            continue
+        res = client.app.bsky.feed.get_author_feed(params)
 
-        # Replies overslaan
-        if getattr(record, "reply", None):
-            continue
+        # atproto client may return model objects; make robust by converting to dict when needed
+        feed = getattr(res, "feed", None) or res.get("feed", [])
+        cursor = getattr(res, "cursor", None) or res.get("cursor")
 
-        # Quote-posts overslaan
-        if is_quote_post(record):
-            continue
-
-        # Tekst-only / link-only posts overslaan (alleen posts met media)
-        if not has_media(record):
-            continue
-
-        # Al eens gedaan?
-        if uri in done:
-            continue
-
-        created_dt = parse_time(record, post)
-        if not created_dt:
-            continue
-        if created_dt < cutoff:
-            continue
-
-        candidates.append({
-            "uri": uri,
-            "cid": cid,
-            "created": created_dt,
-            # we slaan de handle niet op in log, alleen intern als key
-            "author_did": getattr(post.author, "did", None),
-        })
-
-    # Oudste eerst
-    candidates.sort(key=lambda x: x["created"])
-
-    log(f"🧩 {len(candidates)} geschikte posts gevonden.")
-
-    reposted = 0
-    liked = 0
-    per_user_count = {}
-
-    for post in candidates:
-        if reposted >= MAX_PER_RUN:
+        if not feed:
             break
 
-        author_key = post["author_did"] or "unknown"
-        per_user_count[author_key] = per_user_count.get(author_key, 0)
-        if per_user_count[author_key] >= MAX_PER_USER:
-            continue
+        for item in feed:
+            # item can be model or dict
+            item_dict = item.model_dump() if hasattr(item, "model_dump") else item
+            scanned += 1
 
-        uri = post["uri"]
-        cid = post["cid"]
+            if not is_repost_item(item_dict):
+                continue
 
-        try:
-            # Repost
-            client.app.bsky.feed.repost.create(
-                repo=client.me.did,
-                record={
-                    "subject": {"uri": uri, "cid": cid},
-                    "createdAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                },
-            )
-            reposted += 1
-            per_user_count[author_key] += 1
-            done.add(uri)
+            reason = item_dict.get("reason", {}) or {}
+            repost_uri = reason.get("uri")
 
-            # Like
+            # fallback: sometimes the repost record URI is in viewer.repost
+            if not repost_uri:
+                post = item_dict.get("post", {}) or {}
+                viewer = post.get("viewer", {}) or {}
+                repost_uri = viewer.get("repost")
+
+            if not repost_uri:
+                skipped_no_uri += 1
+                continue
+
             try:
-                client.app.bsky.feed.like.create(
-                    repo=client.me.did,
-                    record={
-                        "subject": {"uri": uri, "cid": cid},
-                        "createdAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    },
+                repo, collection, rkey = parse_at_uri(repost_uri)
+            except Exception as e:
+                print(f"⚠️ Kan repost_uri niet parsen: {repost_uri} ({e})")
+                continue
+
+            # extra safety: only delete your own repost records
+            if repo != my_did or collection != "app.bsky.feed.repost":
+                print(f"⚠️ Skip (niet jouw repost-record): {repost_uri}")
+                continue
+
+            print(f"UNREPOST: {repost_uri}")
+            if not dry_run:
+                client.com.atproto.repo.delete_record(
+                    {"repo": repo, "collection": collection, "rkey": rkey}
                 )
-                liked += 1
-            except Exception as e_like:
-                log(f"⚠️ Fout bij liken (intern gelogd): {e_like}")
 
-            # Korte vertraging tussen posts
-            time.sleep(2)
+            unreposted += 1
+            if unreposted >= max_actions:
+                print(f"🛑 MAX_ACTIONS bereikt ({max_actions}). Stop run.")
+                print(f"📊 scanned={scanned} unreposted={unreposted} skipped_no_uri={skipped_no_uri}")
+                return
 
-        except Exception as e:
-            log(f"⚠️ Fout bij repost (intern gelogd): {e}")
+            time.sleep(sleep_s)
 
-    # Repost-log opslaan
-    save_repost_log(REPOST_LOG_FILE, done)
+        if not cursor:
+            break
 
-    log(f"🔥 Klaar — {reposted} reposts uitgevoerd ({liked} geliked).")
-    log(f"⏰ Run afgerond op {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print("✅ Klaar.")
+    print(f"📊 scanned={scanned} unreposted={unreposted} skipped_no_uri={skipped_no_uri}")
+    if dry_run:
+        print("ℹ️ Dit was een DRY RUN (er is niets verwijderd).")
+
 
 if __name__ == "__main__":
     main()
