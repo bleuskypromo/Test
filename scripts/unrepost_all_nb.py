@@ -3,9 +3,9 @@ import os
 import time
 
 # === SAFETY CONFIG ===
-DEFAULT_LIMIT = 100          # items per page
-DEFAULT_MAX_ACTIONS = 500    # max unreposts per run (safety cap)
-DEFAULT_SLEEP_SECONDS = 0.15 # throttle
+DEFAULT_LIMIT = 100           # items per page
+DEFAULT_MAX_ACTIONS = 500     # max unreposts per run (safety cap)
+DEFAULT_SLEEP_SECONDS = 0.15  # throttle
 
 
 def is_repost_item(feed_item: dict) -> bool:
@@ -33,6 +33,15 @@ def parse_at_uri(uri: str):
     return repo, collection, rkey
 
 
+def to_dict(obj):
+    """
+    Convert atproto/pydantic models to plain dict safely.
+    """
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(mode="json")
+    return obj
+
+
 def main():
     username = os.getenv("BSKY_USERNAME_NB")
     password = os.getenv("BSKY_PASSWORD_NB")
@@ -46,9 +55,12 @@ def main():
     sleep_s = float(os.getenv("SLEEP_SECONDS", str(DEFAULT_SLEEP_SECONDS)))
 
     client = Client()
-    client.login(username, password)
+    try:
+        client.login(username, password)
+    except Exception as e:
+        print("❌ Login failed. Gebruik bij voorkeur een Bluesky App Password in BSKY_PASSWORD_NB.")
+        raise
 
-    # In atproto python client: client.me.did is your DID
     my_did = client.me.did
 
     print(f"✅ Ingelogd als {username}")
@@ -59,6 +71,7 @@ def main():
     scanned = 0
     unreposted = 0
     skipped_no_uri = 0
+    skipped_not_owned = 0
 
     while True:
         params = {"actor": my_did, "limit": DEFAULT_LIMIT}
@@ -67,28 +80,30 @@ def main():
 
         res = client.app.bsky.feed.get_author_feed(params)
 
-        # atproto client may return model objects; make robust by converting to dict when needed
-        feed = getattr(res, "feed", None) or res.get("feed", [])
-        cursor = getattr(res, "cursor", None) or res.get("cursor")
+        # IMPORTANT: res is a Response model, not a dict
+        feed = getattr(res, "feed", []) or []
+        cursor = getattr(res, "cursor", None)
 
         if not feed:
             break
 
         for item in feed:
-            # item can be model or dict
-            item_dict = item.model_dump() if hasattr(item, "model_dump") else item
+            item_dict = to_dict(item)
             scanned += 1
 
             if not is_repost_item(item_dict):
                 continue
 
-            reason = item_dict.get("reason", {}) or {}
+            # reason might be model -> ensure dict
+            reason = to_dict(item_dict.get("reason", {}) or {})
+
+            # best-case: reason.uri is the repost record URI (at://.../app.bsky.feed.repost/<rkey>)
             repost_uri = reason.get("uri")
 
-            # fallback: sometimes the repost record URI is in viewer.repost
+            # fallback: sometimes the repost record URI is in post.viewer.repost
             if not repost_uri:
-                post = item_dict.get("post", {}) or {}
-                viewer = post.get("viewer", {}) or {}
+                post = to_dict(item_dict.get("post", {}) or {})
+                viewer = to_dict(post.get("viewer", {}) or {})
                 repost_uri = viewer.get("repost")
 
             if not repost_uri:
@@ -101,21 +116,26 @@ def main():
                 print(f"⚠️ Kan repost_uri niet parsen: {repost_uri} ({e})")
                 continue
 
-            # extra safety: only delete your own repost records
+            # safety: only delete your own repost records (and only repost collection)
             if repo != my_did or collection != "app.bsky.feed.repost":
-                print(f"⚠️ Skip (niet jouw repost-record): {repost_uri}")
+                skipped_not_owned += 1
                 continue
 
             print(f"UNREPOST: {repost_uri}")
+
             if not dry_run:
                 client.com.atproto.repo.delete_record(
                     {"repo": repo, "collection": collection, "rkey": rkey}
                 )
 
             unreposted += 1
+
             if unreposted >= max_actions:
                 print(f"🛑 MAX_ACTIONS bereikt ({max_actions}). Stop run.")
-                print(f"📊 scanned={scanned} unreposted={unreposted} skipped_no_uri={skipped_no_uri}")
+                print(
+                    f"📊 scanned={scanned} unreposted={unreposted} "
+                    f"skipped_no_uri={skipped_no_uri} skipped_not_owned={skipped_not_owned}"
+                )
                 return
 
             time.sleep(sleep_s)
@@ -124,10 +144,14 @@ def main():
             break
 
     print("✅ Klaar.")
-    print(f"📊 scanned={scanned} unreposted={unreposted} skipped_no_uri={skipped_no_uri}")
+    print(
+        f"📊 scanned={scanned} unreposted={unreposted} "
+        f"skipped_no_uri={skipped_no_uri} skipped_not_owned={skipped_not_owned}"
+    )
     if dry_run:
         print("ℹ️ Dit was een DRY RUN (er is niets verwijderd).")
 
 
 if __name__ == "__main__":
     main()
+```0
