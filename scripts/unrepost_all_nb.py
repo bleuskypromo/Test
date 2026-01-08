@@ -2,30 +2,12 @@ from atproto import Client
 import os
 import time
 
-# === SAFETY CONFIG ===
-DEFAULT_LIMIT = 100
+# --- CONFIG ---
+COLLECTION = "app.bsky.feed.repost"
+PAGE_LIMIT = 100
+
 DEFAULT_MAX_ACTIONS = 500
 DEFAULT_SLEEP_SECONDS = 0.15
-
-
-def to_dict(obj):
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump(mode="json")
-    return obj
-
-
-def is_repost_item(item: dict) -> bool:
-    reason = item.get("reason")
-    if not reason:
-        return False
-    return reason.get("$type", "").endswith("reasonRepost")
-
-
-def parse_at_uri(uri: str):
-    if not uri.startswith("at://"):
-        raise ValueError("Invalid AT URI")
-    parts = uri.replace("at://", "").split("/")
-    return parts[0], parts[1], parts[2]
 
 
 def main():
@@ -42,53 +24,57 @@ def main():
 
     client = Client()
     client.login(username, password)
-
     my_did = client.me.did
 
     print(f"✅ Logged in as {username}")
     print(f"ℹ️ DID: {my_did}")
-    print(f"ℹ️ dry_run={dry_run}")
+    print(f"ℹ️ dry_run={dry_run} max_actions={max_actions} sleep={sleep_s}s")
 
     cursor = None
-    unreposted = 0
     scanned = 0
+    deleted = 0
 
     while True:
-        params = {"actor": my_did, "limit": DEFAULT_LIMIT}
+        params = {
+            "repo": my_did,
+            "collection": COLLECTION,
+            "limit": PAGE_LIMIT,
+        }
         if cursor:
             params["cursor"] = cursor
 
-        res = client.app.bsky.feed.get_author_feed(params)
-        feed = res.feed
-        cursor = res.cursor
+        res = client.com.atproto.repo.list_records(params)
 
-        if not feed:
+        # res is a Response model
+        records = getattr(res, "records", []) or []
+        cursor = getattr(res, "cursor", None)
+
+        if not records:
             break
 
-        for item in feed:
-            item = to_dict(item)
+        for rec in records:
+            # rec has: uri, cid, value
+            # Example uri: at://did:plc:.../app.bsky.feed.repost/<rkey>
+            uri = getattr(rec, "uri", None)
             scanned += 1
 
-            if not is_repost_item(item):
+            if not uri or not uri.startswith("at://"):
                 continue
 
-            reason = to_dict(item.get("reason", {}))
-            repost_uri = reason.get("uri")
-
-            if not repost_uri:
-                post = to_dict(item.get("post", {}))
-                viewer = to_dict(post.get("viewer", {}))
-                repost_uri = viewer.get("repost")
-
-            if not repost_uri:
+            # parse rkey from uri
+            # at://<did>/<collection>/<rkey>
+            parts = uri.replace("at://", "").split("/")
+            if len(parts) < 3:
                 continue
 
-            repo, collection, rkey = parse_at_uri(repost_uri)
+            repo = parts[0]
+            collection = parts[1]
+            rkey = parts[2]
 
-            if repo != my_did or collection != "app.bsky.feed.repost":
+            if repo != my_did or collection != COLLECTION:
                 continue
 
-            print(f"UNREPOST: {repost_uri}")
+            print(f"UNREPOST-RECORD: {uri}")
 
             if not dry_run:
                 client.com.atproto.repo.delete_record(
@@ -97,9 +83,10 @@ def main():
                     rkey=rkey,
                 )
 
-            unreposted += 1
-            if unreposted >= max_actions:
-                print("🛑 MAX_ACTIONS reached")
+            deleted += 1
+            if deleted >= max_actions:
+                print(f"🛑 MAX_ACTIONS reached ({max_actions}). Stop run.")
+                print(f"📊 scanned={scanned} deleted={deleted}")
                 return
 
             time.sleep(sleep_s)
@@ -107,7 +94,7 @@ def main():
         if not cursor:
             break
 
-    print(f"✅ Done — scanned={scanned}, unreposted={unreposted}")
+    print(f"✅ Done — scanned={scanned}, unreposted(deleted)={deleted}")
     if dry_run:
         print("ℹ️ DRY RUN — nothing was deleted")
 
