@@ -12,15 +12,19 @@ def count_reposts(client, did):
         params = {"repo": did, "collection": COLLECTION, "limit": PAGE_LIMIT}
         if cursor:
             params["cursor"] = cursor
+
         res = client.com.atproto.repo.list_records(params)
         records = getattr(res, "records", []) or []
         cursor = getattr(res, "cursor", None)
 
         if not records:
             break
+
         total += len(records)
+
         if not cursor:
             break
+
     return total
 
 def delete_batch(client, did, max_actions, sleep_s):
@@ -52,9 +56,14 @@ def delete_batch(client, did, max_actions, sleep_s):
             if repo != did or collection != COLLECTION:
                 continue
 
-            client.com.atproto.repo.delete_record(repo=repo, collection=collection, rkey=rkey)
-            deleted += 1
+            # ✅ atproto in jouw GH runner wil een dict als 'data'
+            client.com.atproto.repo.delete_record({
+                "repo": repo,
+                "collection": collection,
+                "rkey": rkey,
+            })
 
+            deleted += 1
             if deleted >= max_actions:
                 return deleted
 
