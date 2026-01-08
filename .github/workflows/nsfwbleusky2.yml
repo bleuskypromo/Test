@@ -1,24 +1,39 @@
+name: Unrepost all (NB)
 
+on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (true/false)"
+        required: true
+        default: "true"
+      max_actions:
+        description: "Max unreposts per run (safety cap)"
+        required: true
+        default: "500"
 
 jobs:
-  run:
+  cleanup:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Python setup
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install atproto
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install atproto
 
-      - name: Run autoposter (nsfwbleusky)
+      - name: Unrepost everything (NB account)
         env:
           BSKY_USERNAME_NB: ${{ secrets.BSKY_USERNAME_NB }}
           BSKY_PASSWORD_NB: ${{ secrets.BSKY_PASSWORD_NB }}
-        run: python autoposter_nb2.py
+          DRY_RUN: ${{ inputs.dry_run }}
+          MAX_ACTIONS: ${{ inputs.max_actions }}
+          SLEEP_SECONDS: "0.15"
+        run: |
+          python scripts/unrepost_all_nb.py
