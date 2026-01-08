@@ -1,8 +1,4 @@
-name: Bluesky Auto Reposter (Promo Feed 2)
 
-on:
-  schedule:
-    - cron: "11 */1 * * *"  # iedere uur
   workflow_dispatch:       # handmatig starten kan ook
 
 jobs:
