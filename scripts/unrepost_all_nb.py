@@ -2,7 +2,6 @@ from atproto import Client
 import os
 import time
 
-# --- CONFIG ---
 COLLECTION = "app.bsky.feed.repost"
 PAGE_LIMIT = 100
 
@@ -26,26 +25,44 @@ def main():
     client.login(username, password)
     my_did = client.me.did
 
-    print(f"✅ Logged in as {username}")
-    print(f"ℹ️ DID: {my_did}")
-    print(f"ℹ️ dry_run={dry_run} max_actions={max_actions} sleep={sleep_s}s")
+    print("✅ Logged in.")
+    print(f"ℹ️ dry_run={dry_run} max_actions={max_actions}")
 
+    # Pass 1: count ALL repost records
     cursor = None
-    scanned = 0
-    deleted = 0
-
+    total = 0
     while True:
-        params = {
-            "repo": my_did,
-            "collection": COLLECTION,
-            "limit": PAGE_LIMIT,
-        }
+        params = {"repo": my_did, "collection": COLLECTION, "limit": PAGE_LIMIT}
         if cursor:
             params["cursor"] = cursor
 
         res = client.com.atproto.repo.list_records(params)
+        records = getattr(res, "records", []) or []
+        cursor = getattr(res, "cursor", None)
 
-        # res is a Response model
+        if not records:
+            break
+
+        total += len(records)
+
+        if not cursor:
+            break
+
+    print(f"📊 Total repost-records found: {total}")
+
+    # If you want ONLY the count, stop here:
+    if os.getenv("COUNT_ONLY", "true").lower() == "true":
+        return
+
+    # Pass 2 (optional): delete up to MAX_ACTIONS (minimal logging)
+    cursor = None
+    deleted = 0
+    while True:
+        params = {"repo": my_did, "collection": COLLECTION, "limit": PAGE_LIMIT}
+        if cursor:
+            params["cursor"] = cursor
+
+        res = client.com.atproto.repo.list_records(params)
         records = getattr(res, "records", []) or []
         cursor = getattr(res, "cursor", None)
 
@@ -53,28 +70,17 @@ def main():
             break
 
         for rec in records:
-            # rec has: uri, cid, value
-            # Example uri: at://did:plc:.../app.bsky.feed.repost/<rkey>
             uri = getattr(rec, "uri", None)
-            scanned += 1
-
-            if not uri or not uri.startswith("at://"):
+            if not uri:
                 continue
 
-            # parse rkey from uri
-            # at://<did>/<collection>/<rkey>
             parts = uri.replace("at://", "").split("/")
             if len(parts) < 3:
                 continue
 
-            repo = parts[0]
-            collection = parts[1]
-            rkey = parts[2]
-
+            repo, collection, rkey = parts[0], parts[1], parts[2]
             if repo != my_did or collection != COLLECTION:
                 continue
-
-            print(f"UNREPOST-RECORD: {uri}")
 
             if not dry_run:
                 client.com.atproto.repo.delete_record(
@@ -85,8 +91,7 @@ def main():
 
             deleted += 1
             if deleted >= max_actions:
-                print(f"🛑 MAX_ACTIONS reached ({max_actions}). Stop run.")
-                print(f"📊 scanned={scanned} deleted={deleted}")
+                print(f"🛑 Deleted this run: {deleted}")
                 return
 
             time.sleep(sleep_s)
@@ -94,9 +99,7 @@ def main():
         if not cursor:
             break
 
-    print(f"✅ Done — scanned={scanned}, unreposted(deleted)={deleted}")
-    if dry_run:
-        print("ℹ️ DRY RUN — nothing was deleted")
+    print(f"✅ Deleted this run: {deleted}")
 
 
 if __name__ == "__main__":
