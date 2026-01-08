@@ -1,0 +1,35 @@
+name: Unrepost cleanup (NB) scheduled
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # elke 15 minuten
+  workflow_dispatch:          # ook handmatig kunnen starten
+
+concurrency:
+  group: unrepost-nb
+  cancel-in-progress: true   # nooit twee runs tegelijk
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install atproto
+
+      - name: Unrepost batch
+        env:
+          BSKY_USERNAME_NB: ${{ secrets.BSKY_USERNAME_NB }}
+          BSKY_PASSWORD_NB: ${{ secrets.BSKY_PASSWORD_NB }}
+          MAX_ACTIONS: "2000"
+          SLEEP_SECONDS: "0.3"
+        run: |
+          python scripts/unrepost_batch_nb.py
