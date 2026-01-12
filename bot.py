@@ -13,7 +13,7 @@ from typing import Optional, Dict, List, Set, Tuple
 
 FEEDS = {
     "feed 1": {"link": "", "note": "PROMO (bovenaan)"},
-    "feed 2": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/feed/aaabjeu5724em", "mentions": ""},
+    "feed 2": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/feed/aaabjeu5724em", "note": "promo feed 2"},
     "feed 3": {"link": "", "note": ""},
     "feed 4": {"link": "", "note": ""},
     "feed 5": {"link": "", "note": ""},
@@ -25,11 +25,8 @@ FEEDS = {
 }
 
 LIJSTEN = {
-    "lijst 1": {
-        "link": "",
-        "note": "PROMO (bovenaan) — beautyfan test lijst",
-    },
-    "lijst 2": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/lists/3m3iga6wnmz2p", "Beautygroup list": ""},
+    "lijst 1": {"link": "", "note": "PROMO (bovenaan)"},
+    "lijst 2": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/lists/3m3iga6wnmz2p", "note": "Beautygroup list"},
     "lijst 3": {"link": "", "note": ""},
     "lijst 4": {"link": "", "note": ""},
     "lijst 5": {"link": "", "note": ""},
@@ -54,12 +51,12 @@ HASHTAG_QUERY = "#bskypromo"
 # ============================================================
 # RUNTIME CONFIG (via env)
 # ============================================================
-HOURS_BACK = int(os.getenv("HOURS_BACK", "24"))                 # laatste 3 uur
+HOURS_BACK = int(os.getenv("HOURS_BACK", "3"))                 # laatste 3 uur
 MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "100"))             # 100 posts
 MAX_PER_USER = int(os.getenv("MAX_PER_USER", "3"))             # max 3 per user
 SLEEP_SECONDS = float(os.getenv("SLEEP_SECONDS", "2"))         # 2 sec delay
 
-# State file om reposts te tracken (en promo te kunnen unreposten)
+# State file om reposts/likes te tracken (voor promo refresh)
 STATE_FILE = os.getenv("STATE_FILE", "repost_state_bleuskypromo.json")
 
 # Leden nalopen (minimaal 1000)
@@ -94,12 +91,10 @@ def utcnow() -> datetime:
 
 
 def parse_time(post) -> Optional[datetime]:
-    # PostView vaak: indexedAt, record.createdAt
     indexed = getattr(post, "indexedAt", None) or getattr(post, "indexed_at", None)
     if indexed:
         try:
-            dt = datetime.fromisoformat(indexed.replace("Z", "+00:00"))
-            return dt
+            return datetime.fromisoformat(indexed.replace("Z", "+00:00"))
         except Exception:
             pass
 
@@ -108,8 +103,7 @@ def parse_time(post) -> Optional[datetime]:
         created = getattr(record, "createdAt", None) or getattr(record, "created_at", None)
         if created:
             try:
-                dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                return dt
+                return datetime.fromisoformat(created.replace("Z", "+00:00"))
             except Exception:
                 pass
     return None
@@ -168,7 +162,7 @@ def normalize_list_uri(client: Client, s: str) -> Optional[str]:
 
 def load_state(path: str) -> Dict:
     if not os.path.exists(path):
-        return {"repost_records": {}}  # subject_uri -> repost_record_uri
+        return {"repost_records": {}, "like_records": {}}  # subject_uri -> record_uri
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -181,20 +175,13 @@ def save_state(path: str, state: Dict) -> None:
 
 
 def parse_at_uri_rkey(uri: str) -> Optional[Tuple[str, str, str]]:
-    """
-    at://did/collection/rkey
-    returns (did, collection, rkey)
-    """
     if not uri.startswith("at://"):
         return None
     rest = uri[len("at://"):]
     parts = rest.split("/")
     if len(parts) < 3:
         return None
-    did = parts[0]
-    collection = parts[1]
-    rkey = parts[2]
-    return did, collection, rkey
+    return parts[0], parts[1], parts[2]  # did, collection, rkey
 
 
 def fetch_feed_items(client: Client, feed_uri: str, max_items: int) -> List:
@@ -267,7 +254,6 @@ def build_candidates_from_feed_items(
         if not post:
             continue
 
-        # boosts/reposts overslaan
         if hasattr(item, "reason") and item.reason is not None:
             continue
 
@@ -275,11 +261,9 @@ def build_candidates_from_feed_items(
         if not record:
             continue
 
-        # replies overslaan
         if getattr(record, "reply", None):
             continue
 
-        # quotes overslaan (veilig)
         if is_quote_post(record):
             continue
 
@@ -307,7 +291,7 @@ def build_candidates_from_feed_items(
             "force_refresh": promo_force_refresh,
         })
 
-    cands.sort(key=lambda x: x["created"])  # oudste eerst
+    cands.sort(key=lambda x: x["created"])
     return cands
 
 
@@ -324,11 +308,9 @@ def build_candidates_from_postviews(
         if not record:
             continue
 
-        # replies overslaan
         if getattr(record, "reply", None):
             continue
 
-        # quotes overslaan
         if is_quote_post(record):
             continue
 
@@ -368,8 +350,10 @@ def main():
         return
 
     cutoff = utcnow() - timedelta(hours=HOURS_BACK)
+
     state = load_state(STATE_FILE)
     repost_records: Dict[str, str] = state.get("repost_records", {})  # subject_uri -> repost_record_uri
+    like_records: Dict[str, str] = state.get("like_records", {})      # subject_uri -> like_record_uri
 
     client = Client()
     client.login(username, password)
@@ -429,11 +413,11 @@ def main():
                 exclude_dids.add(d.lower())
 
     # ---- ORDER: promo feed 1 + promo lijst 1 eerst ----
-    def sort_key_promo_first(item: Tuple[str, str, str], promo_key: str) -> int:
+    def promo_sort(item: Tuple[str, str, str], promo_key: str) -> int:
         return 0 if item[0] == promo_key else 1
 
-    feed_uris.sort(key=lambda x: sort_key_promo_first(x, PROMO_FEED_KEY))
-    list_uris.sort(key=lambda x: sort_key_promo_first(x, PROMO_LIST_KEY))
+    feed_uris.sort(key=lambda x: promo_sort(x, PROMO_FEED_KEY))
+    list_uris.sort(key=lambda x: promo_sort(x, PROMO_LIST_KEY))
 
     all_candidates: List[Dict] = []
 
@@ -483,8 +467,8 @@ def main():
 
     log(f"🧩 Candidates totaal: {len(candidates)} (na dedupe)")
 
-    # ---- execute ----
     reposted = 0
+    liked = 0
     per_user_count: Dict[str, int] = {}
 
     for c in candidates:
@@ -498,9 +482,11 @@ def main():
 
         subject_uri = c["uri"]
         subject_cid = c["cid"]
+        force = bool(c.get("force_refresh"))
 
-        # PROMO: als al gerepost -> unrepost + repost opnieuw
-        if c.get("force_refresh"):
+        # PROMO refresh: unrepost + unlike indien nodig
+        if force:
+            # unrepost
             if subject_uri in repost_records:
                 existing_repost_uri = repost_records.get(subject_uri)
                 parsed = parse_at_uri_rkey(existing_repost_uri) if existing_repost_uri else None
@@ -514,10 +500,25 @@ def main():
                         except Exception as e_del:
                             log(f"⚠️ PROMO unrepost failed: {e_del}")
 
+            # unlike
+            if subject_uri in like_records:
+                existing_like_uri = like_records.get(subject_uri)
+                parsed = parse_at_uri_rkey(existing_like_uri) if existing_like_uri else None
+                if parsed:
+                    did, collection, rkey = parsed
+                    if did == me and collection == "app.bsky.feed.like":
+                        try:
+                            client.app.bsky.feed.like.delete({"repo": me, "rkey": rkey})
+                            log(f"💔 PROMO unlike: {subject_uri}")
+                            like_records.pop(subject_uri, None)
+                        except Exception as e_ul:
+                            log(f"⚠️ PROMO unlike failed: {e_ul}")
+
         # Als al gerepost en niet force refresh: skip
-        if subject_uri in repost_records and not c.get("force_refresh"):
+        if subject_uri in repost_records and not force:
             continue
 
+        # ---- REPOST ----
         try:
             out = client.app.bsky.feed.repost.create(
                 repo=me,
@@ -526,7 +527,6 @@ def main():
                     "createdAt": utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 },
             )
-            # Save repost record uri so we can delete later for promo refresh
             repost_uri = getattr(out, "uri", None)
             if repost_uri:
                 repost_records[subject_uri] = repost_uri
@@ -535,15 +535,36 @@ def main():
             per_user_count[ak] += 1
             log(f"✅ Repost: {subject_uri}")
 
-            time.sleep(SLEEP_SECONDS)
-
         except Exception as e:
             log(f"⚠️ Repost error: {e}")
             time.sleep(SLEEP_SECONDS)
+            continue
+
+        # ---- LIKE ----
+        try:
+            out_like = client.app.bsky.feed.like.create(
+                repo=me,
+                record={
+                    "subject": {"uri": subject_uri, "cid": subject_cid},
+                    "createdAt": utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                },
+            )
+            like_uri = getattr(out_like, "uri", None)
+            if like_uri:
+                like_records[subject_uri] = like_uri
+
+            liked += 1
+            log(f"❤️ Like: {subject_uri}")
+
+        except Exception as e_like:
+            log(f"⚠️ Like error: {e_like}")
+
+        time.sleep(SLEEP_SECONDS)
 
     state["repost_records"] = repost_records
+    state["like_records"] = like_records
     save_state(STATE_FILE, state)
-    log(f"🔥 Done — {reposted} reposts.")
+    log(f"🔥 Done — {reposted} reposts, {liked} likes.")
 
 
 if __name__ == "__main__":
