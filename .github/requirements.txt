@@ -1,2 +1,0 @@
-atproto==0.0.56
-python-dateutil==2.9.0.post0
