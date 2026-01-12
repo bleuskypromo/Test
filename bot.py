@@ -13,7 +13,7 @@ from typing import Optional, Dict, List, Set, Tuple
 
 FEEDS = {
     "feed 1": {"link": "", "note": "PROMO (bovenaan)"},
-    "feed 2": {"link": "", "note": ""},
+    "feed 2": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/feed/aaabjeu5724em", "mentions": ""},
     "feed 3": {"link": "", "note": ""},
     "feed 4": {"link": "", "note": ""},
     "feed 5": {"link": "", "note": ""},
