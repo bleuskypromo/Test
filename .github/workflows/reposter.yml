@@ -2,7 +2,7 @@ name: bleuskypromo reposter
 
 on:
   schedule:
-    - cron: "47 * * * *"
+        - cron: "3,33 * * * *"
   workflow_dispatch:
 
 permissions:
