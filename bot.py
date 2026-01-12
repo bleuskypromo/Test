@@ -17,7 +17,7 @@ FEEDS = {
         "link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/feed/aaabjeu5724em",
         "note": "mentions",
     },
-    "feed 3": {"link": "", "note": ""},
+    "feed 3": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/feed/aaae6jfc5w2oi", "note": "bleuskypromo feed"},
     "feed 4": {"link": "", "note": ""},
     "feed 5": {"link": "", "note": ""},
     "feed 6": {"link": "", "note": ""},
