@@ -15,7 +15,7 @@ FEEDS = {
     "feed 1": {"link": "", "note": "PROMO (bovenaan)"},
     "feed 2": {
         "link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/feed/aaabjeu5724em",
-        "note": "promo feed 2",
+        "note": "mentions",
     },
     "feed 3": {"link": "", "note": ""},
     "feed 4": {"link": "", "note": ""},
