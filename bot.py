@@ -13,7 +13,10 @@ from typing import Optional, Dict, List, Set, Tuple
 
 FEEDS = {
     "feed 1": {"link": "", "note": "PROMO (bovenaan)"},
-    "feed 2": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/feed/aaabjeu5724em", "note": "mentions"},
+    "feed 2": {
+        "link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/feed/aaabjeu5724em",
+        "note": "promo feed 2",
+    },
     "feed 3": {"link": "", "note": ""},
     "feed 4": {"link": "", "note": ""},
     "feed 5": {"link": "", "note": ""},
@@ -26,7 +29,10 @@ FEEDS = {
 
 LIJSTEN = {
     "lijst 1": {"link": "", "note": "PROMO (bovenaan)"},
-    "lijst 2": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/lists/3m3iga6wnmz2p", "note": "Beautygroup list"},
+    "lijst 2": {
+        "link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/lists/3m3iga6wnmz2p",
+        "note": "Beautygroup list",
+    },
     "lijst 3": {"link": "", "note": ""},
     "lijst 4": {"link": "", "note": ""},
     "lijst 5": {"link": "", "note": ""},
@@ -37,7 +43,7 @@ LIJSTEN = {
     "lijst 10": {"link": "", "note": ""},
 }
 
-# Uitsluiten: iedereen uit deze lijst(en) nooit repost
+# Uitsluiten: iedereen uit deze lijst(en) nooit repost/like
 EXCLUDE_LISTS = {
     "exclude 1": {
         "link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/lists/3m6xfd6xs472o",
@@ -51,8 +57,8 @@ HASHTAG_QUERY = "#bskypromo"
 # ============================================================
 # RUNTIME CONFIG (via env)
 # ============================================================
-HOURS_BACK = int(os.getenv("HOURS_BACK", "8"))                 # laatste 3 uur
-MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "100"))             # 200 posts
+HOURS_BACK = int(os.getenv("HOURS_BACK", "3"))                 # laatste 3 uur
+MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "100"))             # 100 posts
 MAX_PER_USER = int(os.getenv("MAX_PER_USER", "3"))             # max 3 per user
 SLEEP_SECONDS = float(os.getenv("SLEEP_SECONDS", "2"))         # 2 sec delay
 
@@ -116,6 +122,37 @@ def is_quote_post(record) -> bool:
     return bool(getattr(embed, "record", None) or getattr(embed, "recordWithMedia", None))
 
 
+def has_media(record) -> bool:
+    """
+    Alleen echte media: images/video.
+    External-only (link cards) telt NIET als media.
+    """
+    embed = getattr(record, "embed", None)
+    if not embed:
+        return False
+
+    if getattr(embed, "images", None):
+        return True
+
+    if getattr(embed, "video", None):
+        return True
+
+    # Link card is niet toegestaan als "media"
+    if getattr(embed, "external", None):
+        return False
+
+    # recordWithMedia media-check (we skippen quotes elders, maar dit helpt bij modelvarianten)
+    rwm = getattr(embed, "recordWithMedia", None)
+    if rwm and getattr(rwm, "media", None):
+        m = rwm.media
+        if getattr(m, "images", None):
+            return True
+        if getattr(m, "video", None):
+            return True
+
+    return False
+
+
 def resolve_handle_to_did(client: Client, actor: str) -> Optional[str]:
     if actor.startswith("did:"):
         return actor
@@ -162,7 +199,7 @@ def normalize_list_uri(client: Client, s: str) -> Optional[str]:
 
 def load_state(path: str) -> Dict:
     if not os.path.exists(path):
-        return {"repost_records": {}, "like_records": {}}  # subject_uri -> record_uri
+        return {"repost_records": {}, "like_records": {}}
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -175,7 +212,7 @@ def save_state(path: str, state: Dict) -> None:
 
 
 def parse_at_uri_rkey(uri: str) -> Optional[Tuple[str, str, str]]:
-    if not uri.startswith("at://"):
+    if not uri or not uri.startswith("at://"):
         return None
     rest = uri[len("at://"):]
     parts = rest.split("/")
@@ -254,6 +291,7 @@ def build_candidates_from_feed_items(
         if not post:
             continue
 
+        # boosts/reposts overslaan
         if hasattr(item, "reason") and item.reason is not None:
             continue
 
@@ -261,10 +299,16 @@ def build_candidates_from_feed_items(
         if not record:
             continue
 
+        # replies overslaan
         if getattr(record, "reply", None):
             continue
 
+        # quotes overslaan
         if is_quote_post(record):
+            continue
+
+        # ✅ alleen media posts
+        if not has_media(record):
             continue
 
         uri = getattr(post, "uri", None)
@@ -308,10 +352,16 @@ def build_candidates_from_postviews(
         if not record:
             continue
 
+        # replies overslaan
         if getattr(record, "reply", None):
             continue
 
+        # quotes overslaan
         if is_quote_post(record):
+            continue
+
+        # ✅ alleen media posts
+        if not has_media(record):
             continue
 
         uri = getattr(post, "uri", None)
@@ -352,8 +402,8 @@ def main():
     cutoff = utcnow() - timedelta(hours=HOURS_BACK)
 
     state = load_state(STATE_FILE)
-    repost_records: Dict[str, str] = state.get("repost_records", {})  # subject_uri -> repost_record_uri
-    like_records: Dict[str, str] = state.get("like_records", {})      # subject_uri -> like_record_uri
+    repost_records: Dict[str, str] = state.get("repost_records", {})
+    like_records: Dict[str, str] = state.get("like_records", {})
 
     client = Client()
     client.login(username, password)
@@ -568,4 +618,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    ma
