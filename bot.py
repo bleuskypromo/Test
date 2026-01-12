@@ -26,10 +26,10 @@ FEEDS = {
 
 LIJSTEN = {
     "lijst 1": {
-        "link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/lists/3m3iga6wnmz2p",
+        "link": "",
         "note": "PROMO (bovenaan) — beautyfan test lijst",
     },
-    "lijst 2": {"link": "", "note": ""},
+    "lijst 2": {"link": "https://bsky.app/profile/did:plc:jaka644beit3x4vmmg6yysw7/lists/3m3iga6wnmz2p", "Beautygroup list": ""},
     "lijst 3": {"link": "", "note": ""},
     "lijst 4": {"link": "", "note": ""},
     "lijst 5": {"link": "", "note": ""},
