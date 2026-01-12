@@ -51,8 +51,8 @@ HASHTAG_QUERY = "#bskypromo"
 # ============================================================
 # RUNTIME CONFIG (via env)
 # ============================================================
-HOURS_BACK = int(os.getenv("HOURS_BACK", "3"))                 # laatste 3 uur
-MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "100"))             # 100 posts
+HOURS_BACK = int(os.getenv("HOURS_BACK", "8"))                 # laatste 3 uur
+MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "100"))             # 200 posts
 MAX_PER_USER = int(os.getenv("MAX_PER_USER", "3"))             # max 3 per user
 SLEEP_SECONDS = float(os.getenv("SLEEP_SECONDS", "2"))         # 2 sec delay
 
