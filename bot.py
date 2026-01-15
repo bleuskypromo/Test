@@ -4,7 +4,41 @@ import random
 from typing import Set, List, Dict, Optional, Tuple
 
 # Assuming these are imported from your framework/library
-# from atproto import Client
+
+# imports
+from atproto import Client
+import os
+...
+
+print("=== STARTING BOT ===", flush=True)
+
+# -------------------------
+# helpers (ALTIJD EERST)
+# -------------------------
+def log(msg: str):
+    ...
+
+def utcnow():
+    ...
+
+def parse_time(...):
+    ...
+
+def is_quote_post(...):
+    ...
+
+def has_media(...):
+    ...
+
+# alle andere helper functies
+# normalize_*, fetch_*, repost_and_like, etc.
+
+# -------------------------
+# MAIN PAS HIERNA
+# -------------------------
+def main():
+    log("🚀 main() entered")
+    ...
 # from your_utils import (log, utcnow, load_state, save_state, normalize_feed_uri, 
 #                        normalize_list_uri, normalize_post_uri, fetch_author_feed, 
 #                        fetch_feed_items, fetch_list_members, fetch_hashtag_posts, 
