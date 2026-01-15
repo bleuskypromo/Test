@@ -641,5 +641,26 @@ def main():
             build_candidates_from_feed_items(items, cutoff, exclude_handles, exclude_dids, promo_force_refresh=promo)
         )
 
-    # ---- LISTS (minimaal 1000 nalopen) ----
-    for key, note, luri in li
+# ---- LISTS (minimaal 1000 nalopen) ----
+    for key, note, luri in list_uris:
+        promo = (key == PROMO_LIST_KEY)
+        label = f"{key}" + (f" ({note})" if note else "")
+        log(f"📋 Lijst verwerken: {label}" + (" [PROMO]" if promo else ""))
+
+        members = fetch_list_members(client, luri, limit=max(1000, LIST_MEMBER_LIMIT))
+        log(f"👥 Leden opgehaald: {len(members)}")
+
+        for (h, d) in members:
+            actor = d or h
+            if not actor:
+                continue
+            author_items = fetch_author_feed(client, actor, AUTHOR_POSTS_PER_MEMBER)
+            all_candidates.extend(
+                build_candidates_from_feed_items(
+                    author_items,
+                    cutoff,
+                    exclude_handles,
+                    exclude_dids,
+                    promo_force_refresh=promo,
+                )
+            )
