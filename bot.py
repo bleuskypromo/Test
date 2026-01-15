@@ -10,7 +10,7 @@ from typing import Optional, Dict, List, Set, Tuple
 
 # ===== HARD OUTPUT FIX (GitHub Actions) =====
 try:
-    sys.stdout.reconfigure(line_buffering=True)  # py3.7+
+    sys.stdout.reconfigure(line_buffering=True)
 except Exception:
     pass
 
@@ -69,12 +69,7 @@ HASHTAG_QUERY = "#bskypromo"
 
 # ============================================================
 # FIXED SLOTS (unlimited + always refresh)
-# - Slot 3: single promo post
-# - Slot 4: random beautyfan
-# - Slot 5: random Hotbleusky
-# - Slot 6: random bleuskybeauty2
 # ============================================================
-
 SINGLE_PROMO_POST = "https://bsky.app/profile/beautygroup.bsky.social/post/3mcildeh7cs2r"
 SLOT4_ACTOR = "beautyfan.bsky.social"
 SLOT5_ACTOR = "Hotbleusky.bsky.social"
@@ -83,14 +78,14 @@ SLOT6_ACTOR = "bleuskybeauty2.bsky.social"
 # ============================================================
 # RUNTIME CONFIG (env)
 # ============================================================
-HOURS_BACK = int(os.getenv("HOURS_BACK", "3"))                 # normale candidates
-MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "100"))             # incl slots
-MAX_PER_USER = int(os.getenv("MAX_PER_USER", "3"))             # alleen normale candidates
+HOURS_BACK = int(os.getenv("HOURS_BACK", "3"))
+MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "100"))
+MAX_PER_USER = int(os.getenv("MAX_PER_USER", "3"))
 SLEEP_SECONDS = float(os.getenv("SLEEP_SECONDS", "2"))
 
 STATE_FILE = os.getenv("STATE_FILE", "repost_state_bleuskypromo.json")
 
-LIST_MEMBER_LIMIT = int(os.getenv("LIST_MEMBER_LIMIT", "1500"))      # >= 1000
+LIST_MEMBER_LIMIT = int(os.getenv("LIST_MEMBER_LIMIT", "1500"))  # >= 1000
 AUTHOR_POSTS_PER_MEMBER = int(os.getenv("AUTHOR_POSTS_PER_MEMBER", "10"))
 FEED_MAX_ITEMS = int(os.getenv("FEED_MAX_ITEMS", "500"))
 HASHTAG_MAX_ITEMS = int(os.getenv("HASHTAG_MAX_ITEMS", "100"))
@@ -150,7 +145,7 @@ def is_quote_post(record) -> bool:
 def has_media(record) -> bool:
     """
     Alleen echte media: images/video.
-    External-only (link cards) telt NIET als media.
+    Link-card (external) telt niet als media.
     """
     embed = getattr(record, "embed", None)
     if not embed:
@@ -264,11 +259,7 @@ def parse_at_uri_rkey(uri: str) -> Optional[Tuple[str, str, str]]:
 def fetch_feed_items(client: Client, feed_uri: str, max_items: int) -> List:
     items: List = []
     cursor = None
-    page = 0
     while True:
-        page += 1
-        if page == 1:
-            log(f"   feed page {page} ...")
         params = {"feed": feed_uri, "limit": 100}
         if cursor:
             params["cursor"] = cursor
@@ -289,9 +280,11 @@ def fetch_list_members(client: Client, list_uri: str, limit: int) -> List[Tuple[
         page += 1
         if page == 1 or page % 10 == 0:
             log(f"   list page {page} (members so far: {len(members)})")
+
         params = {"list": list_uri, "limit": 100}
         if cursor:
             params["cursor"] = cursor
+
         out = client.app.bsky.graph.get_list(params)
         items = getattr(out, "items", []) or []
         for it in items:
@@ -304,9 +297,11 @@ def fetch_list_members(client: Client, list_uri: str, limit: int) -> List[Tuple[
                 members.append((h, d))
             if len(members) >= limit:
                 return members[:limit]
+
         cursor = getattr(out, "cursor", None)
         if not cursor:
             break
+
     return members[:limit]
 
 
@@ -486,6 +481,7 @@ def repost_and_like(
     if force_refresh:
         force_unrepost_unlike_if_needed(client, me, subject_uri, repost_records, like_records)
 
+    # repost
     try:
         out = client.app.bsky.feed.repost.create(
             repo=me,
@@ -501,6 +497,7 @@ def repost_and_like(
         log(f"⚠️ repost error: {e}")
         return False
 
+    # like
     try:
         out_like = client.app.bsky.feed.like.create(
             repo=me,
@@ -561,7 +558,6 @@ def pick_random_post_from_actor_unlimited(
 
     if not eligible:
         return None
-
     return random.choice(eligible)
 
 
@@ -575,7 +571,7 @@ def main():
         return
 
     cutoff = utcnow() - timedelta(hours=HOURS_BACK)
-    log(f"Cutoff: {cutoff.isoformat()}  (HOURS_BACK={HOURS_BACK})")
+    log(f"Cutoff = {cutoff.isoformat()}")
 
     state = load_state(STATE_FILE)
     repost_records: Dict[str, str] = state.get("repost_records", {})
@@ -587,7 +583,7 @@ def main():
     me = client.me.did
     log(f"✅ Logged in as {me}")
 
-    # ---- normalize feeds/lists ----
+    # Normalize feeds/lists
     feed_uris: List[Tuple[str, str, str]] = []
     for key, obj in FEEDS.items():
         link = (obj.get("link") or "").strip()
@@ -622,9 +618,9 @@ def main():
         if uri:
             excl_uris.append((key, note, uri))
         else:
-            log(f"⚠️ Exclude lijst ongeldig (skip): {key} -> {link}")
+            log(f"⚠️ Exclude ongeldig (skip): {key} -> {link}")
 
-    # ---- exclude sets ----
+    # Build exclude sets
     exclude_handles: Set[str] = set()
     exclude_dids: Set[str] = set()
     for key, note, luri in excl_uris:
@@ -637,7 +633,7 @@ def main():
             if d:
                 exclude_dids.add(d.lower())
 
-    # ---- collect candidates (feeds + lists + hashtag) ----
+    # Collect candidates (feeds + lists + hashtag)
     all_candidates: List[Dict] = []
 
     log(f"Feeds to process: {len(feed_uris)}")
@@ -649,4 +645,11 @@ def main():
     log(f"Lists to process: {len(list_uris)}")
     for key, note, luri in list_uris:
         log(f"📋 List: {key} ({note})")
-        members = fetch_list_members(client, luri, 
+        members = fetch_list_members(client, luri, limit=max(1000, LIST_MEMBER_LIMIT))
+        log(f"👥 Members fetched: {len(members)}")
+        for (h, d) in members:
+            actor = d or h
+            if not actor:
+                continue
+            author_items = fetch_author_feed(client, actor, AUTHOR_POSTS_PER_MEMBER)
+            all_candidates.extend(build_candidates_from_feed_items(author_items, cutoff, ex
