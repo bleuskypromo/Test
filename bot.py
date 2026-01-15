@@ -652,4 +652,11 @@ def main():
             if not actor:
                 continue
             author_items = fetch_author_feed(client, actor, AUTHOR_POSTS_PER_MEMBER)
-            all_candidates.extend(build_candidates_from_feed_items(author_items, cutoff, ex
+            all_candidates.extend(
+                build_candidates_from_feed_items(
+                    author_items,
+                    cutoff,
+                    exclude_handles,
+                    exclude_dids,
+                )
+            )
