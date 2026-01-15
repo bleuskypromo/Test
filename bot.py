@@ -5,6 +5,7 @@ import time
 import json
 import random
 import sys
+print("=== BLEUSKYPROMO BOT STARTED ===", flush=True)
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Set, Tuple
 
