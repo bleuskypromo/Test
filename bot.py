@@ -60,13 +60,15 @@ EXCLUDE_LISTS = {
 HASHTAG_QUERY = "#bskypromo"
 
 # ============================================================
-# FIXED SLOTS (3 t/m 6) — onbeperkt terugkijken + always refresh
+# FIXED SLOTS (slots = onbeperkt terugkijken + always refresh)
+# - Slot 3: single promo post (bsky.app link of at://)
+# - Slot 4: random beautyfan
+# - Slot 5: random Hotbleusky
+# - Slot 6: random bleuskybeauty2
 # ============================================================
 
-# Slot 3: je single promo post (mag bsky.app link OF at://... zijn)
 SINGLE_PROMO_POST = "https://bsky.app/profile/beautygroup.bsky.social/post/3mcildeh7cs2r"
 
-# Slot 4-6: random posts van vaste accounts (unlimited terugkijken)
 SLOT4_ACTOR = "beautyfan.bsky.social"
 SLOT5_ACTOR = "Hotbleusky.bsky.social"
 SLOT6_ACTOR = "bleuskybeauty2.bsky.social"
@@ -75,7 +77,7 @@ SLOT6_ACTOR = "bleuskybeauty2.bsky.social"
 # RUNTIME CONFIG (via env)
 # ============================================================
 HOURS_BACK = int(os.getenv("HOURS_BACK", "3"))                 # normale content: laatste 3 uur
-MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "200"))             # totaal incl slots
+MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "100"))             # totaal incl slots
 MAX_PER_USER = int(os.getenv("MAX_PER_USER", "3"))             # alleen normale content
 SLEEP_SECONDS = float(os.getenv("SLEEP_SECONDS", "2"))
 
@@ -86,14 +88,13 @@ AUTHOR_POSTS_PER_MEMBER = int(os.getenv("AUTHOR_POSTS_PER_MEMBER", "10"))
 FEED_MAX_ITEMS = int(os.getenv("FEED_MAX_ITEMS", "500"))
 HASHTAG_MAX_ITEMS = int(os.getenv("HASHTAG_MAX_ITEMS", "100"))
 
-# slot-accounts: hoeveel posts ophalen om random uit te kiezen
 SLOT_AUTHOR_FEED_LIMIT = int(os.getenv("SLOT_AUTHOR_FEED_LIMIT", "100"))
 
 ENV_USERNAME = os.getenv("ENV_USERNAME", "BSKY_USERNAME_BP")
 ENV_PASSWORD = os.getenv("ENV_PASSWORD", "BSKY_PASSWORD_BP")
 
 # ============================================================
-# helpers
+# regex
 # ============================================================
 
 FEED_URL_RE = re.compile(r"^https?://(www\.)?bsky\.app/profile/([^/]+)/feed/([^/?#]+)", re.I)
@@ -104,9 +105,13 @@ PROMO_FEED_KEY = "feed 1"
 PROMO_LIST_KEY = "lijst 1"
 
 
+# ============================================================
+# helpers
+# ============================================================
+
 def log(msg: str):
     now = datetime.now(timezone.utc).strftime("%H:%M:%S")
-    print(f"[{now}] {msg}")
+    print(f"[{now}] {msg}", flush=True)
 
 
 def utcnow() -> datetime:
@@ -140,10 +145,6 @@ def is_quote_post(record) -> bool:
 
 
 def has_media(record) -> bool:
-    """
-    Alleen echte media: images/video.
-    External-only (link cards) telt NIET als media.
-    """
     embed = getattr(record, "embed", None)
     if not embed:
         return False
@@ -216,21 +217,16 @@ def normalize_post_uri(client: Client, s: str) -> Optional[str]:
     if not s:
         return None
     s = s.strip()
-
     if s.startswith("at://") and "/app.bsky.feed.post/" in s:
         return s
-
     m = POST_URL_RE.match(s)
     if not m:
         return None
-
     actor = m.group(2)
     rkey = m.group(3)
-
     did = resolve_handle_to_did(client, actor)
     if not did:
         return None
-
     return f"at://{did}/app.bsky.feed.post/{rkey}"
 
 
@@ -438,7 +434,6 @@ def force_unrepost_unlike_if_needed(
     repost_records: Dict[str, str],
     like_records: Dict[str, str],
 ):
-    # unrepost
     if subject_uri in repost_records:
         existing_repost_uri = repost_records.get(subject_uri)
         parsed = parse_at_uri_rkey(existing_repost_uri) if existing_repost_uri else None
@@ -452,7 +447,6 @@ def force_unrepost_unlike_if_needed(
                     log(f"⚠️ Refresh unrepost failed: {e_del}")
         repost_records.pop(subject_uri, None)
 
-    # unlike
     if subject_uri in like_records:
         existing_like_uri = like_records.get(subject_uri)
         parsed = parse_at_uri_rkey(existing_like_uri) if existing_like_uri else None
@@ -479,7 +473,6 @@ def repost_and_like(
     if force_refresh:
         force_unrepost_unlike_if_needed(client, me, subject_uri, repost_records, like_records)
 
-    # repost
     try:
         out = client.app.bsky.feed.repost.create(
             repo=me,
@@ -495,7 +488,6 @@ def repost_and_like(
         log(f"⚠️ Repost error: {e}")
         return False
 
-    # like
     try:
         out_like = client.app.bsky.feed.like.create(
             repo=me,
@@ -519,10 +511,6 @@ def pick_random_post_from_actor_unlimited(
     exclude_handles: Set[str],
     exclude_dids: Set[str],
 ) -> Optional[Tuple[str, str]]:
-    """
-    Slots: onbeperkt terugkijken (GEEN cutoff check).
-    Wel: media-only, geen reply, geen quote, exclude respecteren.
-    """
     items = fetch_author_feed(client, actor, SLOT_AUTHOR_FEED_LIMIT)
     eligible: List[Tuple[str, str]] = []
 
@@ -550,7 +538,6 @@ def pick_random_post_from_actor_unlimited(
         author = getattr(post, "author", None)
         ah = (getattr(author, "handle", "") or "").lower()
         ad = (getattr(author, "did", "") or "").lower()
-
         if ah in exclude_handles or ad in exclude_dids:
             continue
 
@@ -650,4 +637,9 @@ def main():
         label = f"{key}" + (f" ({note})" if note else "")
         log(f"📥 Feed verwerken: {label}" + (" [PROMO]" if promo else ""))
         items = fetch_feed_items(client, furi, max_items=FEED_MAX_ITEMS)
-        all_candidates.extend
+        all_candidates.extend(
+            build_candidates_from_feed_items(items, cutoff, exclude_handles, exclude_dids, promo_force_refresh=promo)
+        )
+
+    # ---- LISTS (minimaal 1000 nalopen) ----
+    for key, note, luri in li
