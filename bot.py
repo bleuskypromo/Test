@@ -772,30 +772,7 @@ if __name__ == "__main__":
         print("=== FATAL ERROR ===", flush=True)
         traceback.print_exc()
         raise
-author_items = fetch_author_feed(client, actor, AUTHOR_POSTS_PER_MEMBER)
-all_candidates.extend(
-                build_candidates_from_feed_items(author_items, cutoff, exclude_handles, exclude_dids)
-            )
-
-    # ---- HASHTAG ----
-    log("🔎 Hashtag search...")
-    hashtag_posts = fetch_hashtag_posts(client, HASHTAG_MAX_ITEMS)
-    all_candidates.extend(
-        build_candidates_from_postviews(hashtag_posts, cutoff, exclude_handles, exclude_dids)
-    )
-
-    # ---- dedupe + sort ----
-    seen: Set[str] = set()
-    candidates: List[Dict] = []
-    for c in sorted(all_candidates, key=lambda x: x["created"]):
-        if c["uri"] in seen:
-            continue
-        seen.add(c["uri"])
-        candidates.append(c)
-
-    log(f"🧩 Candidates total: {len(candidates)}")
-
-    # ============================================================
+ ============================================================
     # EXECUTE:
     # - Slots 3-6 eerst (unlimited + refresh)
     # - Daarna normale candidates (3 uur) met MAX_PER_USER
