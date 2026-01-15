@@ -656,3 +656,119 @@ def main():
             if not actor:
                 continue
             author_items = fetch_author_feed(client, actor, AUTHOR_POSTS_PER_MEMBER)
+all_candidates.extend(
+                build_candidates_from_feed_items(author_items, cutoff, exclude_handles, exclude_dids)
+            )
+
+    # ---- HASHTAG ----
+    log("🔎 Hashtag search...")
+    hashtag_posts = fetch_hashtag_posts(client, HASHTAG_MAX_ITEMS)
+    all_candidates.extend(
+        build_candidates_from_postviews(hashtag_posts, cutoff, exclude_handles, exclude_dids)
+    )
+
+    # ---- dedupe + sort ----
+    seen: Set[str] = set()
+    candidates: List[Dict] = []
+    for c in sorted(all_candidates, key=lambda x: x["created"]):
+        if c["uri"] in seen:
+            continue
+        seen.add(c["uri"])
+        candidates.append(c)
+
+    log(f"🧩 Candidates total: {len(candidates)}")
+
+    # ============================================================
+    # EXECUTE:
+    # - Slots 3-6 eerst (unlimited + refresh)
+    # - Daarna normale candidates (3 uur) met MAX_PER_USER
+    # ============================================================
+    total_done = 0
+    per_user_count: Dict[str, int] = {}
+
+    def run_slot(pos: int):
+        nonlocal total_done
+        if total_done >= MAX_PER_RUN:
+            return
+
+        if pos == 3:
+            promo_uri = normalize_post_uri(client, SINGLE_PROMO_POST)
+            log(f"🧷 Slot3 promo uri: {promo_uri}")
+            if not promo_uri:
+                return
+            pv = get_postview_by_uri(client, promo_uri)
+            if not pv:
+                log("⚠️ Slot3 promo not found")
+                return
+            record = getattr(pv, "record", None)
+            if not record:
+                log("⚠️ Slot3 promo no record")
+                return
+            if getattr(record, "reply", None) or is_quote_post(record) or (not has_media(record)):
+                log("⚠️ Slot3 promo fails filters")
+                return
+            author = getattr(pv, "author", None)
+            ah = (getattr(author, "handle", "") or "").lower()
+            ad = (getattr(author, "did", "") or "").lower()
+            if ah in exclude_handles or ad in exclude_dids:
+                log("⚠️ Slot3 promo author excluded")
+                return
+            uri = getattr(pv, "uri", None)
+            cid = getattr(pv, "cid", None)
+            if not uri or not cid:
+                log("⚠️ Slot3 missing uri/cid")
+                return
+
+            log("🔥 Slot3: SINGLE PROMO (refresh)")
+            if repost_and_like(client, me, uri, cid, repost_records, like_records, True):
+                total_done += 1
+            return
+
+        actor = SLOT4_ACTOR if pos == 4 else SLOT5_ACTOR if pos == 5 else SLOT6_ACTOR
+        log(f"🎲 Slot{pos}: actor={actor}")
+        pick = pick_random_post_from_actor_unlimited(client, actor, exclude_handles, exclude_dids)
+        if not pick:
+            log(f"⚠️ Slot{pos}: no eligible post for {actor}")
+            return
+        uri, cid = pick
+        log(f"🎲 Slot{pos}: picked={uri}")
+        if repost_and_like(client, me, uri, cid, repost_records, like_records, True):
+            total_done += 1
+
+    log("🚀 Running slots 3-6 first...")
+    for pos in (3, 4, 5, 6):
+        run_slot(pos)
+        time.sleep(SLEEP_SECONDS)
+
+    log("🚀 Running normal candidates...")
+    for c in candidates:
+        if total_done >= MAX_PER_RUN:
+            break
+
+        author_key = c["author_key"]
+        per_user_count.setdefault(author_key, 0)
+        if per_user_count[author_key] >= MAX_PER_USER:
+            continue
+
+        if repost_and_like(client, me, c["uri"], c["cid"], repost_records, like_records, False):
+            total_done += 1
+            per_user_count[author_key] += 1
+            log(f"✅ Repost: {c['uri']}")
+            time.sleep(SLEEP_SECONDS)
+
+    state["repost_records"] = repost_records
+    state["like_records"] = like_records
+    save_state(STATE_FILE, state)
+    log(f"🔥 Done — total reposts this run: {total_done}")
+
+
+print("=== ABOUT TO CALL MAIN ===", flush=True)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        import traceback
+        print("=== FATAL ERROR ===", flush=True)
+        traceback.print_exc()
+        raise
